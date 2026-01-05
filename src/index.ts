@@ -23,6 +23,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       description: `Semantic search in text files using Word2Vec embeddings.
 Unlike grep, finds semantically similar words (e.g., searching "fear" also finds "anxiety", "terror", "dread").
 
+Searches recursively in /search directory (mounted volume) for *.md files.
+
 Use cases:
 - Find all mentions of a concept across files
 - Search for synonyms and related terms
@@ -38,18 +40,16 @@ Response format:
     "locations": [{
       "file": "path/to/file.md",
       "line": 42,
-      "context": "text before\\nmatched text\\ntext after"
+      "context": "surrounding text"
     }]
   }]
 }
 
-Matches sorted by similarity (1.0 = exact match).
-For recursive search, locations contains file paths and context snippets.`,
+Matches sorted by similarity (1.0 = exact match).`,
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Search query (word or phrase)" },
-          path: { type: "string", description: "Path to file or directory" },
+          query: { type: "string", description: "Search query (single word recommended, phrases may crash)" },
           model_path: {
             type: "string",
             description:
@@ -57,14 +57,13 @@ For recursive search, locations contains file paths and context snippets.`,
           },
           threshold: {
             type: "number",
-            description: "Similarity: 0.7=strict (default), 0.5-0.6=balanced, 0.4=broad, 0.3=very broad",
+            description: "Similarity threshold. 0.7=strict (default), 0.5-0.6=balanced. WARNING: values below 0.5 can return MASSIVE amounts of data (millions of characters), use with caution!",
           },
-          recursive: { type: "boolean", description: "Search directories recursively" },
-          glob: { type: "string", description: "File pattern for recursive search (default: *.md)" },
-          context: { type: "integer", description: "Lines of context before and after (default: 2)" },
+          glob: { type: "string", description: "File pattern (default: *.md)" },
+          context: { type: "integer", description: "Lines of context around match (default: 2). Set to 0 to reduce output size." },
           ignore_case: { type: "boolean", description: "Ignore case" },
         },
-        required: ["query", "path", "model_path"],
+        required: ["query", "model_path"],
       },
     },
   ],
@@ -72,7 +71,7 @@ For recursive search, locations contains file paths and context snippets.`,
 
 interface SearchParams {
   query: string;
-  path: string;
+  path?: string;
   model_path: string;
   threshold?: number;
   recursive?: boolean;
@@ -148,7 +147,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
   const params = request.params.arguments as unknown as SearchParams;
   const modelPath = expandTilde(params.model_path);
-  const searchPath = expandTilde(params.path);
+  const searchPath = expandTilde(params.path || "/search");
   const args: string[] = [];
 
   args.push("-m", modelPath);
@@ -172,7 +171,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const allMatches: SearchMatch[] = [];
     const pattern = params.glob || "*.md";
 
-    if (params.recursive) {
+    if (params.recursive ?? true) {
       const result = runW2vgrepRecursive(args, searchPath, pattern);
       if (result) {
         const matches = parseW2vgrepOutput(result);

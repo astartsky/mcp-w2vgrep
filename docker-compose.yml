@@ -1,0 +1,17 @@
+services:
+  mcp-w2vgrep:
+    build: .
+    volumes:
+      # Word2Vec models from host (bind mount)
+      - ${MODEL_PATH:-~/.config/semantic-grep}:/app/models:ro
+      # Files to search (read-only for safety)
+      - ${SEARCH_PATH:-.}:/search:ro
+    environment:
+      # Directory for Word2Vec models inside container
+      - MODEL_DIR=/app/models
+      # Skip download since models are mounted
+      - DOWNLOAD_MODELS=none
+    # Required for MCP stdio communication
+    stdin_open: true
+    tty: true
+    working_dir: /search
